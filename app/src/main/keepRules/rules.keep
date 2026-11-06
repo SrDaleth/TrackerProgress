@@ -4,6 +4,9 @@
 # For more details, see
 #   https://d.android.com/r/tools/r8/keep-rules
 
+# Firestore lee los modelos por reflexión (toObject): R8 no debe renombrar ni quitar sus campos
+-keep class com.example.apptrackerprogress.model.** { *; }
+
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:

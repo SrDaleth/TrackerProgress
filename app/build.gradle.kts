@@ -24,6 +24,9 @@ android {
 
     buildTypes {
         release {
+            // Para pruebas: firma el release con la llave de debug y así se puede instalar
+            // directamente en el celular. Para publicar en Play Store se usa una llave propia.
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
@@ -36,6 +39,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    testOptions {
+        // Permite usar clases de Firebase (ej. Timestamp) en los tests unitarios de la lógica
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -79,6 +86,9 @@ dependencies {
 
     //implementacion para el storage de fotos y videos
     implementation("com.google.firebase:firebase-storage")
+
+    // Corrutinas para Firebase (.await()) usadas por los repositorios
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     //implementacion para el storage con cloudinary
     implementation("com.cloudinary:cloudinary-android:2.5.0")

@@ -1,165 +1,47 @@
 package com.example.apptrackerprogress.viewmodel
 
+import android.content.Context
 import android.net.Uri
-import androidx.lifecycle.ViewModel
-import com.cloudinary.android.MediaManager
-import com.cloudinary.android.callback.ErrorInfo
-import com.cloudinary.android.callback.UploadCallback
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
+import com.example.apptrackerprogress.data.WorkRepository
+import com.example.apptrackerprogress.model.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
-class WorkViewModel : ViewModel() {
-    private val db = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
+class WorkViewModel : BaseViewModel() {
+    val works: StateFlow<List<WorkItem>> = WorkRepository.works.asState(emptyList())
 
-    fun addWork(
-        clientName: String,
-        vehicleName: String,
-        description: String,
-        onSuccess: () -> Unit,
-        onError: (String) -> Unit
-    ) {
-        val currentUser = auth.currentUser
-        if (currentUser == null) {
-            onError("Error: Usuario no autenticado")
-            return
-        }
+    fun detail(workId: String): Flow<WorkDetail?> = WorkRepository.detail(workId)
 
-        if (clientName.isBlank() || vehicleName.isBlank()) {
-            onError("El nombre del cliente y del vehículo son obligatorios")
-            return
-        }
+    fun addWork(form: WorkForm, onSuccess: () -> Unit, onError: (String) -> Unit) =
+        action(onError, onSuccess) { WorkRepository.addWork(it, form) }
 
-        val newWorkRef = db.collection("works").document()
+    fun deleteWork(work: WorkItem, returnStock: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) =
+        action(onError, onSuccess) { WorkRepository.deleteWork(it, work, returnStock) }
 
-        val workData = hashMapOf(
-            "id" to newWorkRef.id,
-            "workerId" to currentUser.uid,
-            "clientName" to clientName,
-            "vehicleName" to vehicleName,
-            "description" to description,
-            "status" to "Pendiente"
-        )
+    fun updateStatus(work: WorkItem, newStatus: String, onError: (String) -> Unit) =
+        action(onError) { WorkRepository.updateStatus(it, work, newStatus) }
 
-        newWorkRef.set(workData)
-            .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { exception ->
-                onError(exception.localizedMessage ?: "Error al guardar el trabajo")
-            }
-    }
+    fun updatePayment(workId: String, paid: Boolean, method: String, onError: (String) -> Unit) =
+        action(onError) { WorkRepository.updatePayment(workId, paid, method) }
 
-    var workList = androidx.compose.runtime.mutableStateOf<List<com.example.apptrackerprogress.model.WorkItem>>(emptyList())
-        private set
+    fun addLineItem(workId: String, description: String, type: String, quantity: Int, unitPrice: Double, onSuccess: () -> Unit, onError: (String) -> Unit) =
+        action(onError, onSuccess) { WorkRepository.addLineItem(workId, description, type, quantity, unitPrice) }
 
-    init {
-        fetchWorks()
-    }
+    fun deleteLineItem(workId: String, item: WorkLineItem, onError: (String) -> Unit) =
+        action(onError) { WorkRepository.deleteLineItem(workId, item) }
 
-    fun fetchWorks() {
-        val currentUser = auth.currentUser ?: return
-
-        db.collection("works")
-            .whereEqualTo("workerId", currentUser.uid)
-            .addSnapshotListener { snapshot, exception ->
-                if (exception != null) {
-                    return@addSnapshotListener
-                }
-
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(com.example.apptrackerprogress.model.WorkItem::class.java)
-                    }
-                    workList.value = list
-                }
-            }
-    }
-
-    fun deleteWork(
-        workId: String,
-        onSuccess: () -> Unit,
-        onError: (String) -> Unit
-    ) {
-        db.collection("works").document(workId)
-            .delete()
-            .addOnSuccessListener {
-                onSuccess()
-            }
-            .addOnFailureListener { e ->
-                onError(e.localizedMessage ?: "Error al eliminar el trabajo")
-            }
-    }
-
-    // Subir foto a Cloudinary sin requerir cuenta bancaria ni Firebase Storage
     fun addProgressUpdate(
-        workId: String,
-        mediaUri: Uri?,
-        comment: String,
-        onSuccess: () -> Unit,
-        onError: (String) -> Unit
-    ) {
-        if (mediaUri == null) {
-            onError("Por favor, selecciona una foto o video")
-            return
-        }
-
-        val updateId = db.collection("works").document(workId).collection("updates").document().id
-
-        // Subimos a Cloudinary con el preset 'unsigned' que creaste
-        MediaManager.get().upload(mediaUri)
-            .unsigned("tracker_progress") // Asegúrate de que este nombre sea exacto al de Cloudinary
-            .option("folder", "work_media/$workId")
-            .callback(object : UploadCallback {
-                override fun onStart(requestId: String) {}
-
-                override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
-
-                override fun onSuccess(requestId: String, resultData: Map<*, *>) {
-                    // Cloudinary nos entrega la URL en secure_url
-                    val downloadUrl = resultData["secure_url"] as? String ?: ""
-
-                    val updateData = hashMapOf(
-                        "id" to updateId,
-                        "mediaUrl" to downloadUrl,
-                        "mediaType" to "image",
-                        "comment" to comment,
-                        "timestamp" to System.currentTimeMillis()
-                    )
-
-                    // Guardamos la referencia en Firestore
-                    db.collection("works").document(workId)
-                        .collection("updates").document(updateId)
-                        .set(updateData)
-                        .addOnSuccessListener { onSuccess() }
-                        .addOnFailureListener { e ->
-                            onError(e.localizedMessage ?: "Error al guardar el avance")
-                        }
-                }
-
-                override fun onError(requestId: String, error: ErrorInfo) {
-                    onError("Error en Cloudinary: ${error.description}")
-                }
-
-                override fun onReschedule(requestId: String, error: ErrorInfo) {}
-            }).dispatch()
+        context: Context, workId: String, workLabel: String, mediaUri: Uri?, comment: String,
+        usedItems: List<UsedItem>, publicVisible: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit
+    ) = action(onError, onSuccess) {
+        WorkRepository.addProgressUpdate(context.applicationContext, it, workId, workLabel, mediaUri, comment, usedItems, publicVisible)
     }
 
-    fun getProgressUpdates(
-        workId: String,
-        onUpdatesLoaded: (List<com.example.apptrackerprogress.model.ProgressUpdate>) -> Unit
-    ) {
-        db.collection("works").document(workId).collection("updates")
-            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, _ ->
-                if (snapshot != null) {
-                    val list = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(com.example.apptrackerprogress.model.ProgressUpdate::class.java)
-                    }
-                    onUpdatesLoaded(list)
-                }
-            }
-    }
+    fun setUpdateVisibility(workId: String, updateId: String, publicVisible: Boolean, onError: (String) -> Unit) =
+        action(onError) { WorkRepository.setUpdateVisibility(workId, updateId, publicVisible) }
 
-    fun generateClientLink(workId: String): String {
-        return "https://tallertracker-client.web.app/trabajo/$workId"
-    }
+    fun deleteProgressUpdate(workId: String, workLabel: String, update: ProgressUpdate, onSuccess: () -> Unit, onError: (String) -> Unit) =
+        action(onError, onSuccess) { WorkRepository.deleteProgressUpdate(it, workId, workLabel, update) }
+
+    fun generateClientLink(workId: String): String = WorkRepository.clientLink(workId)
 }
